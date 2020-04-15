@@ -2,7 +2,8 @@
 #include "fsl_port.h"
 #include "fsl_gpio.h"
 #include "mbed_events.h"
-
+#include"math.h"
+#include "algorithm"
 #define UINT14_MAX        16383
 // FXOS8700CQ I2C address
 #define FXOS8700CQ_SLAVE_ADDR0 (0x1E<<1) // with pins SA0=0, SA1=0
@@ -23,13 +24,12 @@
 #define FXOS8700Q_M_CTRL_REG1 0x5B
 #define FXOS8700Q_M_CTRL_REG2 0x5C
 #define FXOS8700Q_WHOAMI_VAL 0xC7
+#define PI 3.1416
 
 DigitalOut led1(LED1);
 InterruptIn sw2(SW2);
 EventQueue q1;
 Thread t1;
-EventQueue q2;
-Thread t2;
 
 I2C i2c( PTD9,PTD8);
 Serial pc(USBTX, USBRX);
@@ -38,48 +38,28 @@ int m_addr = FXOS8700CQ_SLAVE_ADDR1;
 void FXOS8700CQ_readRegs(int addr, uint8_t * data, int len);
 void FXOS8700CQ_writeRegs(uint8_t * data, int len);
 void acc(float * t, int16_t acc16, uint8_t * res);
-void blink();
 void que_acc(float * t, int16_t acc16, uint8_t * res);
-void que_blink();
 
-int main() {
+void FXOS8700CQ_readRegs(int addr, uint8_t * data, int len) {
+   char t = addr;
+   i2c.write(m_addr, &t, 1, true);
+   i2c.read(m_addr, (char *)data, len);
+}
 
-   pc.baud(115200);
-
-   uint8_t who_am_i, data[2], res[6];
-   int16_t acc16;
-   float t[3];
-
-   led1 = 1;
-
-   // Enable the FXOS8700Q
-
-   FXOS8700CQ_readRegs( FXOS8700Q_CTRL_REG1, &data[1], 1);
-   data[1] |= 0x01;
-   data[0] = FXOS8700Q_CTRL_REG1;
-   FXOS8700CQ_writeRegs(data, 2);
-
-   // Get the slave address
-   FXOS8700CQ_readRegs(FXOS8700Q_WHOAMI, &who_am_i, 1);
-
-   // pc.printf("Here is %x\r\n", who_am_i);
-   
-   t1.start(callback(&q1, &EventQueue::dispatch_forever));
-   t2.start(callback(&q2, &EventQueue::dispatch_forever));
-   
-   sw2.rise(q2.event(&que_blink));
-   sw2.fall(q1.event(&que_acc, t, acc16, &res[1]));
-   
+void FXOS8700CQ_writeRegs(uint8_t * data, int len) {
+   i2c.write(m_addr, (char *)data, len);
 }
 
 void acc(float * t, int16_t acc16, uint8_t * res) {
    int num = 0;
-   float data[100][3];
-
-   while (num < 100) {
-
+   float x_data[100];
+   float y_data[100];
+   float z_data[100];
+   float theta[100];
+   float length[100];
+   float tilt[100];
+   for (num=0;num<100;num++) {
       FXOS8700CQ_readRegs(FXOS8700Q_OUT_X_MSB, res, 6);
-
       acc16 = (res[0] << 6) | (res[1] >> 2);
       if (acc16 > UINT14_MAX/2)
          acc16 -= UINT14_MAX;
@@ -95,40 +75,45 @@ void acc(float * t, int16_t acc16, uint8_t * res) {
          acc16 -= UINT14_MAX;
       t[2] = ((float)acc16) / 4096.0f;
 
-      data[num][0] = t[0];
-      data[num][1] = t[1];
-      data[num][2] = t[2];
-      num++;
+      x_data[num] = t[0];
+      y_data[num] = t[1];
+      z_data[num] = t[2];
+      length[num] = sqrt( x_data[num] * x_data[num] + y_data[num] * y_data[num] + z_data[num]* z_data[num]);
+      theta[num] = acos( z_data[num]/ length[num]) * 180 / PI;
+      led1 = !led1;
       wait(0.1);  
    }
-   num = 0;
-   while (num < 100) {
-      pc.printf("%1.4f\r\n%1.4f\r\n%1.4f\r\n", data[num][0], data[num][1], data[num][2]);
+   for(num=0;num<100;num++){
+        if(theta[num] > 45) tilt[num] = 1;
+        else tilt[num] = 0;
+   }
+   for (num=0;num<100;num++) {
+      pc.printf("%1.4f\r\n%1.4f\r\n%1.4f\r\n%1.4f\r\n", x_data[num], y_data[num], z_data[num],tilt[num]);
       num++;
       wait(0.05);
-   }
-
-}
-
-void blink() { 
-   for (int t=0;t<10;t++) {
-      led1 = !led1;
-      wait(1);     
    }
 }
 
 void que_acc(float * t, int16_t acc16, uint8_t * res) {
    q1.call(&acc, t, acc16, res);
 }
-void que_blink() {
-   q2.call(&blink);
-}
-void FXOS8700CQ_readRegs(int addr, uint8_t * data, int len) {
-   char t = addr;
-   i2c.write(m_addr, &t, 1, true);
-   i2c.read(m_addr, (char *)data, len);
-}
 
-void FXOS8700CQ_writeRegs(uint8_t * data, int len) {
-   i2c.write(m_addr, (char *)data, len);
+int main() {
+
+   pc.baud(115200);
+
+   uint8_t who_am_i, data[2], res[6];
+   int16_t acc16;
+   float t[3];
+   led1 = 1;
+
+   FXOS8700CQ_readRegs( FXOS8700Q_CTRL_REG1, &data[1], 1);
+   data[1] |= 0x01;
+   data[0] = FXOS8700Q_CTRL_REG1;
+   FXOS8700CQ_writeRegs(data, 2);
+
+   FXOS8700CQ_readRegs(FXOS8700Q_WHOAMI, &who_am_i, 1);
+
+   t1.start(callback(&q1, &EventQueue::dispatch_forever));  
+   sw2.fall(q1.event(&que_acc, t, acc16, &res[1]));  
 }

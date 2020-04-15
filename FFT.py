@@ -22,13 +22,9 @@ for n in range(0, int(Fs)):
     line=s.readline() # Read an echo string from K66F terminated with '\n'
     # print line
     z[n] = float(line)
-
-for n in range(0, 100):
-    if (x[n] < -0.5):
-        tilt[n] = 1.0
-    else :
-        tilt[n] = 0
-
+    line=s.readline() # Read an echo string from K66F terminated with '\n'
+    # print line
+    tilt[n] = float(line)
 fig, ax = plt.subplots(2, 1)
 ax[0].plot(t,x, color = "blue",  label = "x")
 ax[0].plot(t,y, color = "red",   label = "y")
